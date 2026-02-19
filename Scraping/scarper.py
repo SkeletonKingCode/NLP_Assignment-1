@@ -22,8 +22,56 @@ TAG_EOD = " <EOD>"
 # Urdu Sentence Punctuation Regex - Handles typical Urdu stops
 URDU_PUNCT_REGEX = r'([۔؟!])'
 
+# Urdu Unicode ranges: Arabic script used for Urdu
+URDU_UNICODE_RANGE = r'[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]'
+
+# Common boilerplate / ad phrases to remove
+BOILERPLATE_PHRASES = [
+    "جاری ہے",
+    "LIVEAn error occurred",
+    "Advertisement",
+    "Please try again later",
+    "Tap to unmute",
+    "Learn more"
+]
+
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
+
+def contains_urdu(text):
+    """Return True if the text contains at least one Urdu character."""
+    return bool(re.search(URDU_UNICODE_RANGE, text))
+
+def is_boilerplate(text):
+    """Return True if the text matches any known boilerplate phrase."""
+    text_clean = re.sub(r'\s+', '', text)  # remove whitespace for comparison
+    for phrase in BOILERPLATE_PHRASES:
+        if phrase in text_clean:
+            return True
+    return False
+
+def clean_paragraph(raw_para):
+    """
+    Remove HTML artifacts and non-Urdu fragments from a paragraph string.
+    Returns cleaned text or None if the paragraph should be discarded.
+    """
+    # Remove leading/trailing HTML-like remnants (e.g., 'mb15">', 'mt2">')
+    cleaned = re.sub(r'^[^>\s]*>', '', raw_para)  # remove stuff like 'mb15">'
+    cleaned = cleaned.strip()
+    
+    # Discard if empty or too short (less than 3 characters)
+    if len(cleaned) < 3:
+        return None
+    
+    # Discard if it contains no Urdu characters
+    if not contains_urdu(cleaned):
+        return None
+    
+    # Discard if it's known boilerplate
+    if is_boilerplate(cleaned):
+        return None
+    
+    return cleaned
 
 def process_urdu_text(text):
     if not text: return ""
@@ -47,7 +95,7 @@ def get_driver():
     options = uc.ChromeOptions()
     options.add_argument("--no-sandbox") 
     options.add_argument("--disable-dev-shm-usage")
-    options.page_load_strategy=("eager")
+    options.page_load_strategy = "eager"
     driver = uc.Chrome(options=options)
     return driver
 
@@ -65,7 +113,6 @@ def collect_story_links(driver, start_page, end_page):
             EC.presence_of_element_located((By.CSS_SELECTOR, 'a.sharp_box'))
         )
         
-        # Find story links using Selenium
         story_links = driver.find_elements(By.CSS_SELECTOR, 'a.sharp_box')
         
         for link in story_links:
@@ -100,7 +147,6 @@ def scrape_story(driver, url):
     print(f"   Title: {title}")
     
     # --- 2. Locate the main story container ---
-    # Try multiple possible containers (based on observed structure)
     story_container = None
     possible_containers = [
         ('div', {'class': 'txt_detail'}),
@@ -116,35 +162,49 @@ def scrape_story(driver, url):
         print("   No story container found")
         return None
     
-    # --- 3. Extract paragraphs from the container ---
-    # Convert the container to string and split by <br> tags to get paragraphs
+    # --- 3. Remove unwanted elements that contain boilerplate or ads ---
+    # Remove elements with class 'hide_desk' (often contain "جاری ہے")
+    for hidden in story_container.find_all(class_='hide_desk'):
+        hidden.decompose()
+    # Remove script tags and other noise
+    for script in story_container.find_all(['script', 'ins', 'iframe']):
+        script.decompose()
+    
+    # --- 4. Extract paragraphs by splitting on <br> and block elements ---
+    # Convert container to string and insert paragraph markers at natural breaks
     container_html = str(story_container)
     
-    # Replace <br>, <br/>, </p> with a special marker (e.g., "||PARAGRAPH||")
-    # Also handle <div class="clear"> which sometimes separates paragraphs
-    for tag in ['<br>', '<br/>', '</p>', '<div class="clear']:
+    # Replace <br> and </p> with a paragraph marker
+    for tag in ['<br>', '<br/>', '</p>']:
         container_html = container_html.replace(tag, '||PARAGRAPH||')
+    
+    # Also handle <div class="clear"> which often separates paragraphs
+    container_html = re.sub(r'<div\s+class="clear[^>]*>', '||PARAGRAPH||', container_html)
     
     # Now parse the modified HTML to get text
     temp_soup = BeautifulSoup(container_html, 'html.parser')
     raw_text = temp_soup.get_text()
     
-    # Split by the marker to get paragraphs
+    # Split by the marker to get raw paragraphs
     raw_paragraphs = [p.strip() for p in raw_text.split('||PARAGRAPH||') if p.strip()]
     
-    # --- 4. Process each paragraph with sentence tags and add <EOP> ---
+    # --- 5. Clean and filter paragraphs ---
+    cleaned_paragraphs = []
+    for para in raw_paragraphs:
+        cleaned = clean_paragraph(para)
+        if cleaned:
+            cleaned_paragraphs.append(cleaned)
+    
+    # --- 6. Process each cleaned paragraph with sentence tags and add <EOP> ---
     processed_paragraphs = []
-    for i, para in enumerate(raw_paragraphs):
+    for i, para in enumerate(cleaned_paragraphs):
         if para:
-            # Process sentences (add <EOS>)
             p_text = process_urdu_text(para) + TAG_EOP
             processed_paragraphs.append(p_text)
-            
-            # Debug first paragraph
             if i == 0:
                 print(f"   [DEBUG] 1st Paragraph Preview: {p_text[:100]}...")
     
-    # --- 5. Save to file ---
+    # --- 7. Save to file ---
     if processed_paragraphs:
         safe_title = "".join(x for x in title[:50] if x.isalnum() or x==' ').strip()
         if not safe_title:
@@ -160,7 +220,7 @@ def scrape_story(driver, url):
     else:
         print("   No content extracted")
         return None
-    
+
 def scrape_urdu_point(start_page, end_page):
     driver = get_driver()
     try:
@@ -188,4 +248,4 @@ def scrape_urdu_point(start_page, end_page):
         driver.quit()
 
 if __name__ == "__main__":
-    scrape_urdu_point(1, 1)
+    scrape_urdu_point(1, 1)  # Start with page 1 only for testing; change as needed
