@@ -157,6 +157,50 @@ def train_bpe_on_dataset(folder_path, vocab_size=250):
 
     return final_vocab, merge_list, encoded_corpus
 
+# =========================
+# Saving the Tokenizer
+# =========================
+
+import json
+
+def save_tokenizer_json(vocab, merge_list, filepath="BSETokenizer/bpe_tokenizer.json"):
+    # Convert set to list for JSON
+    data = {
+        "vocab": list(vocab),
+        "merge_list": [(token, list(pair)) for token, pair in merge_list]
+    }
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def load_tokenizer_json(filepath="BSETokenizer/bpe_tokenizer.json"):
+    with open(filepath, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    vocab = set(data["vocab"])
+    # Convert pair back to tuple
+    merge_list = [(item[0], tuple(item[1])) for item in data["merge_list"]]
+    return vocab, merge_list
+
+# =========================
+# LOAD TOKENIZED CORPUS FOR TRIGRAM MODEL
+# =========================
+
+def load_tokenized_corpus_for_trigram(filepath="Tokenized_Dataset/Tokenized_Data.txt"):
+    """
+    Reads a tokenized corpus file (one token per line) and returns a list of segments.
+    Segments are delimited by <EOS>, <EOP>, <EOD> tokens.
+    Each segment is a list of tokens, including the boundary token as its last element.
+
+    Parameters:
+        filepath (str): Path to the tokenized corpus file.
+
+    Returns:
+        list of list of str: Segments ready for trigram model training.
+    """
+    with open(filepath, 'r', encoding='utf-8') as f:
+        # Read all non-empty lines (tokens)
+        tokens = [line.strip() for line in f if line.strip()]
+
+    return tokens
 
 # =========================
 # EXAMPLE USAGE
@@ -166,16 +210,28 @@ if __name__ == "__main__":
 
     dataset_folder = "urdu_stories_dataset"
 
-    # Train on all 600 files
+    # Train on all files
     final_vocab, merge_list, encoded_corpus = train_bpe_on_dataset(dataset_folder, 250)
-    
 
     print("Final Vocabulary Size:", len(final_vocab))
     print("Total Merges Learned:", len(merge_list))
 
-    # Sample sentence
-    sample_sentence = "فقیر نے کہا بھائی <EOS>"
+    # Save tokenizer for later use (optional)
+    save_tokenizer_json(final_vocab, merge_list)
 
+    # ===== NEW: Save the tokenized corpus =====
+    output_dir = "Tokenized_Dataset"
+    os.makedirs(output_dir, exist_ok=True)                 # create folder if missing
+    output_file = os.path.join(output_dir, "Tokenized_Data.txt.txt")
+
+    # Write each token on a new line (preserves token boundaries)
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("\n".join(encoded_corpus))
+
+    print(f"Tokenized corpus saved to {output_file}")
+
+    # Example encoding/decoding of a sample sentence
+    sample_sentence = "فقیر نے کہا بھائی <EOS>"
     encoded_sample = encode(sample_sentence, final_vocab, merge_list)
     print("\nEncoded Sample:")
     print(encoded_sample)
@@ -183,3 +239,17 @@ if __name__ == "__main__":
     decoded_sample = decode(encoded_sample, final_vocab, merge_list)
     print("\nDecoded Sample:")
     print("".join(decoded_sample))
+
+# USAGE IN OTHER FILES
+
+# new_script.py
+# from TokenizerCode import encode, decode, load_tokenizer_json
+
+# vocab, merges = load_tokenizer_json("urdu_bpe.json")
+
+# text = "فقیر نے کہا بھائی <EOS>"
+# encoded = encode(text, vocab, merges)
+# print("Encoded:", encoded)
+
+# decoded = decode(encoded, vocab, merges)
+# print("Decoded:", "".join(decoded))
