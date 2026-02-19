@@ -54,7 +54,7 @@ def scrape_urdu_point(start_page, end_page):
             for page_num in range(start_page, end_page + 1):
                 print(f"\n--- Story List Page {page_num} ---")
                 driver.get(LIST_URL_TEMPLATE.format(page_num))
-                time.sleep(random.uniform(4, 6)) 
+                time.sleep(random.uniform(1, 2)) 
                 
                 soup = BeautifulSoup(driver.page_source, 'html.parser')
                 # Selecting the specific story link boxes
@@ -83,27 +83,23 @@ def scrape_urdu_point(start_page, end_page):
                     # 2. Get the Paragraphs (Spans inside the specific div)
                     processed_paragraphs = []
                     # Find all spans within div[style="text-align: right;"] that have the class 'nastaleeq3'
-                    # Option 1: If the structure is exactly as shown
-                    right_aligned_div = story_soup.find('div', style='text-align: right;')
-                    
-                    if right_aligned_div:
-                        print(right_aligned_div)
-                        spans = right_aligned_div.find_all('span', class_="ar-huruf nastaleeq3")
-                        print(spans)
-                        for i, span in enumerate(spans):
-                            raw_text = span.get_text(strip=True)
-                            print(raw_text)
-                            if raw_text:
-                                # Process sentences and add <EOP>
-                                p_text = process_urdu_text(raw_text) + TAG_EOP
-                                processed_paragraphs.append(p_text)
-                                
-                                # Print 1st span of 1st paragraph for debugging as requested
-                                if i == 0:
-                                    print(f"   [DEBUG] Title: {title}")
-                                    print(f"   [DEBUG] 1st Span: {p_text[:100]}...")
-                    else:
-                        print("ERROR Missing Right")
+                    right_aligned_div = story_soup.find('div', class_='txt_detail')
+                    print(right_aligned_div.get_text())
+                    spans = story_soup.find_all("span", style="font-size:1.25em; line-height:1.8em;")
+                    print(spans)
+                    for i, span in enumerate(spans):
+                        raw_text = span.get_text(strip=True)
+                        print(raw_text)
+                        if raw_text:
+                            # Process sentences and add <EOP>
+                            p_text = process_urdu_text(raw_text) + TAG_EOP
+                            processed_paragraphs.append(p_text)
+                            
+                            # Print 1st span of 1st paragraph for debugging as requested
+                            if i == 0:
+                                print(f"   [DEBUG] Title: {title}")
+                                print(f"   [DEBUG] 1st Span: {p_text[:100]}...")
+
                     # 3. Save to file
                     if processed_paragraphs:
                         # Clean title for filename
@@ -115,7 +111,7 @@ def scrape_urdu_point(start_page, end_page):
                             f.write(f"TITLE: {title}\n\n")
                             f.write("\n".join(processed_paragraphs))
                             f.write(TAG_EOD)
-                        print(f"      ✅ Saved: {safe_title}.txt")
+                        print(f"      Saved: {safe_title}.txt")
 
                     time.sleep(random.uniform(1, 2))
     finally:
