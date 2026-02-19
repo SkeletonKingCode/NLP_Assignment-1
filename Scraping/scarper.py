@@ -240,21 +240,57 @@ def scrape_story(driver, url):
 def scrape_urdu_point(start_page, end_page):
     driver = get_driver()
     try:
-        # Step 1: Collect all story links first
-        print("=== STEP 1: Collecting all story links ===")
-        story_links = collect_story_links(driver, start_page, end_page)
-        print(f"\nTotal links collected: {len(story_links)}")
+        print("=== Starting scraping (page-by-page, story-by-story) ===")
+        for page_num in range(start_page, end_page + 1):
+            list_url = LIST_URL_TEMPLATE.format(page_num)
+            print(f"\n--- Processing Story List Page {page_num}: {list_url} ---")
+            driver.get(list_url)
+            time.sleep(random.uniform(.5, 1))
 
-        # Step 2: Scrape each story
-        print("\n=== STEP 2: Scraping individual stories ===")
-        for i, url in enumerate(story_links, 1):
-            print(f"\n--- Story {i}/{len(story_links)} ---")
-            try:
-                scrape_story(driver, url)
-                time.sleep(random.uniform(.5, 1))  # Be polite between requests
-            except Exception as e:
-                print(f"   Error scraping {url}: {str(e)}")
-                continue
+            # Wait for links to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'a.sharp_box'))
+            )
+
+            # Find all story links on this page and extract hrefs immediately
+            story_elements = driver.find_elements(By.CSS_SELECTOR, 'a.sharp_box')
+            hrefs = []
+            for elem in story_elements:
+                try:
+                    href = elem.get_attribute('href')
+                    if href:
+                        full_url = href if href.startswith('http') else BASE_URL + href
+                        hrefs.append(full_url)
+                except:
+                    continue
+
+            print(f"Found {len(hrefs)} links on page {page_num}")
+
+            # Process each URL
+            for idx, url in enumerate(hrefs, 1):
+                try:
+                    print(f"\n   --- Story {idx} on page {page_num} ---")
+                    # Log the link
+                    with open(LINKS_FILE, "a", encoding="utf-8") as links_log:
+                        links_log.write(url + "\n")
+
+                    # Scrape the story
+                    scrape_story(driver, url)
+
+                    # After scraping, navigate back to the list page
+                    driver.back()
+                    # Wait for the list page to reload before next iteration
+                    time.sleep(random.uniform(1, 2))
+
+                except Exception as e:
+                    print(f"   Error processing {url}: {str(e)}")
+                    # Try to recover by going back to the list page
+                    try:
+                        driver.get(list_url)
+                        time.sleep(random.uniform(1, 2))
+                    except:
+                        pass
+                    continue
 
         print(f"\n=== Scraping Complete! ===")
         print(f"Links saved to: {LINKS_FILE}")
@@ -262,8 +298,9 @@ def scrape_urdu_point(start_page, end_page):
 
     finally:
         driver.quit()
-    driver.quit()
+        time.sleep(1)
+        print("Quiting chromium")
 
 if __name__ == "__main__":
     # Start with page 1 only for testing; change as needed
-    scrape_urdu_point(1, 1)
+    scrape_urdu_point(1, 2)
