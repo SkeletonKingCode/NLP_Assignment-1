@@ -45,8 +45,11 @@ def bytePairEncoding(training_sequence, initial_extra_tokens=None, max_vocab_siz
         vocab.update(initial_extra_tokens)
 
     merge_list = []   # stack of merges (new_token, (left, right))
-
+    step = max_vocab_size/10
     while len(vocab) < max_vocab_size:
+        # Progress
+        if len(vocab)%step == 0:
+            print("Progress: ",len(vocab)/max_vocab_size*100,"%" )
         # Count adjacent pairs
         pair_counts = {}
         for i in range(len(training_sequence) - 1):
