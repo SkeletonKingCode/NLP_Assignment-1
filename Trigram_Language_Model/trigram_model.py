@@ -3,20 +3,14 @@
 # =========================
 from collections import defaultdict, Counter
 import random
-
 import sys
 import os
 
-# Add the parent directory (Assignment-1) to sys.path
-# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-# Import BPE functions from tokenizer.py
 from BSETokenizer.TokenizerCode import load_tokenized_corpus_for_trigram, load_tokenizer_json, encode, decode
 
 # =========================
 # TRIGRAM LM TRAINING
 # =========================
-
 def train_trigram_lm(encoded_corpus):
     unigram_counts = Counter(encoded_corpus)
     bigram_counts = defaultdict(int)
@@ -38,7 +32,6 @@ def train_trigram_lm(encoded_corpus):
 # =========================
 # INTERPOLATED PROBABILITY
 # =========================
-
 def interpolated_prob(w1, w2, w3,
                       unigram_counts,
                       bigram_counts,
@@ -58,7 +51,6 @@ def interpolated_prob(w1, w2, w3,
 # =========================
 # TEXT GENERATION
 # =========================
-
 def generate_text(prefix_tokens,
                   unigram_counts,
                   bigram_counts,
@@ -67,7 +59,8 @@ def generate_text(prefix_tokens,
                   vocab,
                   max_length=1000,
                   temperature=1.0,
-                  top_k=None):
+                  top_k=None,
+                  stop_token="<EOD>"):          # use the actual stop token
 
     generated = prefix_tokens[:]
     recent_window = 10
@@ -118,53 +111,64 @@ def generate_text(prefix_tokens,
         next_token = random.choices(tokens, weights=probs, k=1)[0]
         generated.append(next_token)
 
-        if next_token == "<EOD>":
+        if next_token == stop_token:
             break
 
     return generated
 
-def postprocess_story(tokens):
+# =========================
+# POST‑PROCESSING (USING ACTUAL SPECIAL TOKENS)
+# =========================
+def postprocess_story(tokens, special_tokens):
     """
-    tokens: list of strings (decoded tokens)
-    Returns a list with special tokens replaced/removed.
+    Join tokens into a string and replace special token patterns.
+    special_tokens: list of three strings [EOS, EOP, EOD] in that order.
     """
-    processed = []
-    for token in tokens:
-        if token == "<EOS>":
-            processed.append("۔")          # Urdu full stop
-        elif token == "<EOP>":
-            processed.append("\n")         # newline for paragraph break
-        elif token == "<EOD>":
-            continue                        # remove end-of-story token
-        else:
-            processed.append(token)
-    return processed
+    text = "".join(tokens)
+    eos, eop, eod = special_tokens
+
+    # Replace space+token first, then token alone (to catch any without space)
+    text = text.replace(" " + eos, "۔")   # space before <EOS> becomes Urdu full stop
+    text = text.replace(eos, "۔")         # in case <EOS> appears without space
+
+    text = text.replace(" " + eop, "\n")
+    text = text.replace(eop, "\n")
+
+    # Remove <EOD> completely (with or without preceding space)
+    text = text.replace(" " + eod, "")
+    text = text.replace(eod, "")
+
+    return text
 
 # =========================
 # MAIN PIPELINE
 # =========================
-
 if __name__ == "__main__":
     dataset_folder = "urdu_stories_dataset"
 
-    # 1 Train BPE on full dataset
+    # 1. Load the tokenizer (vocab, merges, and special tokens)
     final_vocab, merge_list, special_tokens = load_tokenizer_json("BSETokenizer/bpe_tokenizer.json")
-    encoded_corpus = load_tokenized_corpus_for_trigram()
     print("BPE vocab size:", len(final_vocab))
     print("Total merges:", len(merge_list))
+    print("Special tokens:", special_tokens)
 
-    # 2 Train trigram LM
+    # 2. Load the tokenized corpus (flat list of tokens)
+    encoded_corpus = load_tokenized_corpus_for_trigram()
+
+    # 3. Train trigram LM
     unigram_counts, bigram_counts, trigram_counts, total_tokens = train_trigram_lm(encoded_corpus)
 
-    # 3 Sample Urdu prefix
+    # 4. Sample Urdu prefix
     sample_prefix = "فقیر نے کہا"
-    encoded_prefix = encode(sample_prefix, final_vocab, merge_list)
+    encoded_prefix = encode(sample_prefix, final_vocab, merge_list, special_tokens)
 
-    # Ensure at least 2 tokens
+    # Ensure at least 2 tokens for trigram context
     if len(encoded_prefix) < 2:
         encoded_prefix = encoded_prefix + encoded_prefix
 
-    # 4️ Generate story
+    # 5. Generate story
+    # The stop token is the actual <EOD> string from special_tokens
+    stop_token = special_tokens[2] if len(special_tokens) > 2 else "<EOD>"
     generated_tokens = generate_text(
         encoded_prefix,
         unigram_counts,
@@ -174,11 +178,16 @@ if __name__ == "__main__":
         final_vocab,
         max_length=5000,
         temperature=0.8,
-        top_k=7
+        top_k=7,
+        stop_token=stop_token
     )
 
-    # 5 Decode back to Urdu
+    # 6. Decode back to Urdu tokens
     decoded_story = decode(generated_tokens, final_vocab, merge_list)
-    display_story = postprocess_story(decoded_story)
+
+    # 7. Post‑process: replace special tokens with display characters
+    display_story = postprocess_story(decoded_story, special_tokens)
+
+    # 8. Print the final story
     print("\nGenerated Story:\n")
-    print("".join(display_story))
+    print((display_story))
