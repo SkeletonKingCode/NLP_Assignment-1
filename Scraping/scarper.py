@@ -15,14 +15,11 @@ OUTPUT_DIR = "urdu_stories_dataset"
 LINKS_FILE = "all_story_links.txt"
 
 # Requested Tags
-TAG_EOS = " <EOS>" 
-TAG_EOP = " <EOP>" 
-TAG_EOD = " <EOD>" 
+TAG_EOS = " <EOS>"
+TAG_EOP = " <EOP>"
+TAG_EOD = " <EOD>"
 
-# Urdu Sentence Punctuation Regex - Handles typical Urdu stops
-URDU_PUNCT_REGEX = r'([۔؟!])'
-
-# Urdu Unicode ranges: Arabic script used for Urdu
+# Urdu Unicode ranges (for detecting actual Urdu text)
 URDU_UNICODE_RANGE = r'[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]'
 
 # Common boilerplate / ad phrases to remove
@@ -55,66 +52,83 @@ def clean_paragraph(raw_para):
     Remove HTML artifacts and non-Urdu fragments from a paragraph string.
     Returns cleaned text or None if the paragraph should be discarded.
     """
-    # Remove leading/trailing HTML-like remnants (e.g., 'mb15">', 'mt2">')
-    cleaned = re.sub(r'^[^>\s]*>', '', raw_para)  # remove stuff like 'mb15">'
+    # Remove leading HTML-like remnants (e.g., 'mb15">')
+    cleaned = re.sub(r'^[^>\s]*>', '', raw_para)
     cleaned = cleaned.strip()
-    
+
     # Discard if empty or too short (less than 3 characters)
     if len(cleaned) < 3:
         return None
-    
+
     # Discard if it contains no Urdu characters
     if not contains_urdu(cleaned):
         return None
-    
+
     # Discard if it's known boilerplate
     if is_boilerplate(cleaned):
         return None
-    
+
     return cleaned
 
 def process_urdu_text(text):
-    if not text: return ""
-    # Split text by punctuation while keeping the punctuation mark
-    parts = re.split(URDU_PUNCT_REGEX, text)
-    sentences = []
-    
-    # Reassemble sentences with the punctuation and add EOS tag
-    for i in range(0, len(parts) - 1, 2):
-        sentence = parts[i].strip() + parts[i+1]
-        if sentence:
-            sentences.append(sentence + TAG_EOS)
-            
-    # Handle any trailing text without punctuation
-    if len(parts) % 2 != 0 and parts[-1].strip():
-        sentences.append(parts[-1].strip() + TAG_EOS)
-        
-    return " ".join(sentences)
+    """
+    Process Urdu text:
+      1. Remove all quotation marks.
+      2. Replace multiple dots (....) with a space.
+      3. Replace Urdu punctuation (۔ ؟ !) with <EOS> (the punctuation is removed).
+      4. Ensure the text ends with <EOS> if it doesn't already.
+    Returns a string with sentences separated by <EOS>.
+    """
+    if not text:
+        return ""
+
+    # 1. Remove quotation marks (including curly quotes)
+    quote_chars = '"\'"”“‘’'
+    translator = str.maketrans('', '', quote_chars)
+    text = text.translate(translator)
+
+    # 2. Replace multiple dots (ellipsis) with a space
+    text = re.sub(r'\․{1,}', ' ', text)
+    text = re.sub(r'\.{1,}', ' ', text)
+
+    # 3. Replace Urdu punctuation with <EOS>
+    punct_marks = ['۔', '؟', '!']
+    for punct in punct_marks:
+        text = text.replace(punct, f' {TAG_EOS.strip()} ')
+
+    # 4. Clean up extra spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    # 5. Ensure the last sentence gets an <EOS> if missing
+    if not text.endswith(TAG_EOS):
+        text += TAG_EOS
+
+    return text
 
 def get_driver():
     options = uc.ChromeOptions()
-    options.add_argument("--no-sandbox") 
+    options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.page_load_strategy = "eager"
     driver = uc.Chrome(options=options)
     return driver
 
 def collect_story_links(driver, start_page, end_page):
-    """First collect all story links from all pages"""
+    """First collect all story links from all pages."""
     all_links = []
-    
+
     for page_num in range(start_page, end_page + 1):
         print(f"\n--- Collecting links from Story List Page {page_num} ---")
         driver.get(LIST_URL_TEMPLATE.format(page_num))
-        time.sleep(random.uniform(2, 3))
-        
+        time.sleep(random.uniform(.5, 1))
+
         # Wait for the links to load
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, 'a.sharp_box'))
         )
-        
+
         story_links = driver.find_elements(By.CSS_SELECTOR, 'a.sharp_box')
-        
+
         for link in story_links:
             try:
                 href = link.get_attribute('href')
@@ -124,28 +138,28 @@ def collect_story_links(driver, start_page, end_page):
                     print(f"   Collected: {full_url}")
             except:
                 continue  # Skip if we can't get the href
-        
+
         # Save links as we go
         with open(LINKS_FILE, "a", encoding="utf-8") as links_log:
             for url in all_links[-len(story_links):]:  # Just save the newly collected ones
                 links_log.write(url + "\n")
-    
+
     return all_links
 
 def scrape_story(driver, url):
-    """Scrape a single story using BeautifulSoup on page source"""
+    """Scrape a single story using BeautifulSoup on page source."""
     print(f"   Scraping: {url}")
     driver.get(url)
-    time.sleep(random.uniform(3, 5))
-    
+    time.sleep(random.uniform(.5, 1))
+
     # Get page source and parse with BeautifulSoup
     soup = BeautifulSoup(driver.page_source, 'html.parser')
-    
+
     # --- 1. Get the Title ---
     title_tag = soup.find('h1', class_='phead')
     title = title_tag.get_text(strip=True) if title_tag else "Untitled Story"
     print(f"   Title: {title}")
-    
+
     # --- 2. Locate the main story container ---
     story_container = None
     possible_containers = [
@@ -157,11 +171,11 @@ def scrape_story(driver, url):
         story_container = soup.find(tag, attrs=attrs)
         if story_container:
             break
-    
+
     if not story_container:
         print("   No story container found")
         return None
-    
+
     # --- 3. Remove unwanted elements that contain boilerplate or ads ---
     # Remove elements with class 'hide_desk' (often contain "جاری ہے")
     for hidden in story_container.find_all(class_='hide_desk'):
@@ -169,51 +183,53 @@ def scrape_story(driver, url):
     # Remove script tags and other noise
     for script in story_container.find_all(['script', 'ins', 'iframe']):
         script.decompose()
-    
+
     # --- 4. Extract paragraphs by splitting on <br> and block elements ---
     # Convert container to string and insert paragraph markers at natural breaks
     container_html = str(story_container)
-    
+
     # Replace <br> and </p> with a paragraph marker
     for tag in ['<br>', '<br/>', '</p>']:
         container_html = container_html.replace(tag, '||PARAGRAPH||')
-    
+
     # Also handle <div class="clear"> which often separates paragraphs
     container_html = re.sub(r'<div\s+class="clear[^>]*>', '||PARAGRAPH||', container_html)
-    
+
     # Now parse the modified HTML to get text
     temp_soup = BeautifulSoup(container_html, 'html.parser')
     raw_text = temp_soup.get_text()
-    
+
     # Split by the marker to get raw paragraphs
     raw_paragraphs = [p.strip() for p in raw_text.split('||PARAGRAPH||') if p.strip()]
-    
+
     # --- 5. Clean and filter paragraphs ---
     cleaned_paragraphs = []
     for para in raw_paragraphs:
         cleaned = clean_paragraph(para)
         if cleaned:
             cleaned_paragraphs.append(cleaned)
-    
+
     # --- 6. Process each cleaned paragraph with sentence tags and add <EOP> ---
     processed_paragraphs = []
     for i, para in enumerate(cleaned_paragraphs):
         if para:
+            # process_urdu_text now removes quotes and replaces punctuation with <EOS>
             p_text = process_urdu_text(para) + TAG_EOP
             processed_paragraphs.append(p_text)
             if i == 0:
                 print(f"   [DEBUG] 1st Paragraph Preview: {p_text[:100]}...")
-    
+
     # --- 7. Save to file ---
     if processed_paragraphs:
-        safe_title = "".join(x for x in title[:50] if x.isalnum() or x==' ').strip()
+        title = re.sub(r'\s+', '+_', title)
+        safe_title = "".join(x for x in title[:50] if x.isalnum() or x == '_').strip()
         if not safe_title:
             safe_title = f"story_{int(time.time())}"
-        
+
         file_path = os.path.join(OUTPUT_DIR, f"{safe_title}.txt")
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(f"TITLE: {title}\n\n")
-            f.write("\n".join(processed_paragraphs))
+            # f.write(f"TITLE: {title}\n\n")
+            f.write("".join(processed_paragraphs[1:]))
             f.write(TAG_EOD)
         print(f"      Saved: {safe_title}.txt")
         return file_path
@@ -228,24 +244,26 @@ def scrape_urdu_point(start_page, end_page):
         print("=== STEP 1: Collecting all story links ===")
         story_links = collect_story_links(driver, start_page, end_page)
         print(f"\nTotal links collected: {len(story_links)}")
-        
+
         # Step 2: Scrape each story
         print("\n=== STEP 2: Scraping individual stories ===")
         for i, url in enumerate(story_links, 1):
             print(f"\n--- Story {i}/{len(story_links)} ---")
             try:
                 scrape_story(driver, url)
-                time.sleep(random.uniform(1, 2))  # Be polite between requests
+                time.sleep(random.uniform(.5, 1))  # Be polite between requests
             except Exception as e:
                 print(f"   Error scraping {url}: {str(e)}")
                 continue
-        
+
         print(f"\n=== Scraping Complete! ===")
         print(f"Links saved to: {LINKS_FILE}")
         print(f"Stories saved to: {OUTPUT_DIR}/")
-        
+
     finally:
         driver.quit()
+    driver.quit()
 
 if __name__ == "__main__":
-    scrape_urdu_point(1, 1)  # Start with page 1 only for testing; change as needed
+    # Start with page 1 only for testing; change as needed
+    scrape_urdu_point(1, 1)
