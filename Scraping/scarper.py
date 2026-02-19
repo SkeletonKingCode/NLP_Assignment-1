@@ -1,7 +1,8 @@
-import requests
+import undetected_chromedriver as uc
 from bs4 import BeautifulSoup
 import re
 import time
+import random
 import os
 
 # Configuration
@@ -9,98 +10,116 @@ BASE_URL = "https://www.urdupoint.com"
 LIST_URL_TEMPLATE = "https://www.urdupoint.com/kids/category/moral-stories-page{}.html"
 OUTPUT_DIR = "urdu_stories_dataset"
 LINKS_FILE = "all_story_links.txt"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"
-}
 
-# Tags
-TAG_EOS = " <EOS>"
-TAG_EOP = " <EOP>"
-TAG_EOD = " <EOD>"
+# Requested Tags
+TAG_EOS = " <EOS>" 
+TAG_EOP = " <EOP>" 
+TAG_EOD = " <EOD>" 
 
-# Urdu Sentence Punctuation Regex
+# Urdu Sentence Punctuation Regex - Handles typical Urdu stops
 URDU_PUNCT_REGEX = r'([۔؟!])'
 
-# Setup Folders
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
 
 def process_urdu_text(text):
-    """Splits text into sentences and appends tags."""
     if not text: return ""
+    # Split text by punctuation while keeping the punctuation mark
     parts = re.split(URDU_PUNCT_REGEX, text)
     sentences = []
+    
+    # Reassemble sentences with the punctuation and add EOS tag
     for i in range(0, len(parts) - 1, 2):
         sentence = parts[i].strip() + parts[i+1]
         if sentence:
             sentences.append(sentence + TAG_EOS)
+            
+    # Handle any trailing text without punctuation
     if len(parts) % 2 != 0 and parts[-1].strip():
         sentences.append(parts[-1].strip() + TAG_EOS)
+        
     return " ".join(sentences)
 
-def scrape_story_content(story_url):
-    """Fetches and parses a single story page."""
+def get_driver():
+    options = uc.ChromeOptions()
+    options.add_argument("--no-sandbox") 
+    options.add_argument("--disable-dev-shm-usage")
+    driver = uc.Chrome(options=options)
+    return driver
+
+def scrape_urdu_point(start_page, end_page):
+    driver = get_driver()
     try:
-        response = requests.get(story_url, headers=HEADERS, timeout=15)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        title_tag = soup.find('h1')
-        title = title_tag.get_text(strip=True) if title_tag else "Untitled"
-        
-        content_div = soup.find('div', class_='detail_text_ads')
-        if not content_div: return None
-
-        paragraphs = content_div.find_all(['p', 'div', 'span'], class_=re.compile(r'urdu|ar-huruf|txt_sc'))
-        processed_body = []
-        for p in paragraphs:
-            txt = p.get_text(strip=True)
-            if len(txt) > 30: 
-                processed_body.append(process_urdu_text(txt) + TAG_EOP)
-        
-        return {"title": title, "body": "\n".join(processed_body) + TAG_EOD}
-    except:
-        return None
-
-def run_scraper(start_page, end_page):
-    # Open the links file in append mode
-    with open(LINKS_FILE, "a", encoding="utf-8") as links_log:
-        for page_num in range(start_page, end_page + 1):
-            print(f"\n--- Crawling List Page {page_num} ---")
-            list_url = LIST_URL_TEMPLATE.format(page_num)
-            
-            try:
-                response = requests.get(list_url, headers=HEADERS)
-                soup = BeautifulSoup(response.content, 'html.parser')
+        with open(LINKS_FILE, "a", encoding="utf-8") as links_log:
+            for page_num in range(start_page, end_page + 1):
+                print(f"\n--- Story List Page {page_num} ---")
+                driver.get(LIST_URL_TEMPLATE.format(page_num))
+                time.sleep(random.uniform(4, 6)) 
+                
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                # Selecting the specific story link boxes
                 story_links = soup.find_all('a', class_='sharp_box')
                 
                 for link in story_links:
                     href = link.get('href')
                     if not href: continue
-                    
                     full_url = href if href.startswith('http') else BASE_URL + href
                     
-                    # 1. Save the link to our file immediately
                     links_log.write(full_url + "\n")
-                    links_log.flush() # Forces writing to disk
+                    links_log.flush()
+
+                    print(f"   Scraping: {full_url}")
+                    driver.get(full_url)
+                    time.sleep(random.uniform(3, 5))
                     
-                    # 2. Scrape the content
-                    story_data = scrape_story_content(full_url)
-                    if story_data:
-                        # Clean title for Linux filename
-                        safe_title = "".join(x for x in story_data['title'][:50] if x.isalnum() or x==' ').strip()
+                    story_soup = BeautifulSoup(driver.page_source, 'html.parser')
+                    
+                    # --- Text Extraction Logic ---
+                    # 1. Get the Title
+                    title_tag = story_soup.find('h1', class_='phead')
+                    title = title_tag.get_text(strip=True) if title_tag else "Untitled Story"
+                    print(title)
+
+                    # 2. Get the Paragraphs (Spans inside the specific div)
+                    processed_paragraphs = []
+                    # Find all spans within div[style="text-align: right;"] that have the class 'nastaleeq3'
+                    # Option 1: If the structure is exactly as shown
+                    right_aligned_div = story_soup.find('div', style='text-align: right;')
+                    
+                    if right_aligned_div:
+                        print(right_aligned_div)
+                        spans = right_aligned_div.find_all('span', class_="ar-huruf nastaleeq3")
+                        print(spans)
+                        for i, span in enumerate(spans):
+                            raw_text = span.get_text(strip=True)
+                            print(raw_text)
+                            if raw_text:
+                                # Process sentences and add <EOP>
+                                p_text = process_urdu_text(raw_text) + TAG_EOP
+                                processed_paragraphs.append(p_text)
+                                
+                                # Print 1st span of 1st paragraph for debugging as requested
+                                if i == 0:
+                                    print(f"   [DEBUG] Title: {title}")
+                                    print(f"   [DEBUG] 1st Span: {p_text[:100]}...")
+                    else:
+                        print("ERROR Missing Right")
+                    # 3. Save to file
+                    if processed_paragraphs:
+                        # Clean title for filename
+                        safe_title = "".join(x for x in title[:50] if x.isalnum() or x==' ').strip()
                         file_path = os.path.join(OUTPUT_DIR, f"{safe_title}.txt")
                         
                         with open(file_path, "w", encoding="utf-8") as f:
-                            f.write(f"SOURCE: {full_url}\n")
-                            f.write(f"TITLE: {story_data['title']}\n\n")
-                            f.write(story_data['body'])
-                        print(f"Successfully scraped: {story_data['title']}")
-                    
-                    time.sleep(1.2) # Polite delay
-                    
-            except Exception as e:
-                print(f"Error on page {page_num}: {e}")
+                            # Note: We don't add tags to the Title unless you want them there too
+                            f.write(f"TITLE: {title}\n\n")
+                            f.write("\n".join(processed_paragraphs))
+                            f.write(TAG_EOD)
+                        print(f"      ✅ Saved: {safe_title}.txt")
 
-# Run for 100 pages
+                    time.sleep(random.uniform(1, 2))
+    finally:
+        driver.quit()
+
 if __name__ == "__main__":
-    print(f"Starting Scraper. Links will be saved to {LINKS_FILE}")
-    run_scraper(1, 100)
+    scrape_urdu_point(1, 100)
