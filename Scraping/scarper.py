@@ -303,4 +303,4 @@ def scrape_urdu_point(start_page, end_page):
 
 if __name__ == "__main__":
     # Start with page 1 only for testing; change as needed
-    scrape_urdu_point(1, 2)
+    scrape_urdu_point(1, 50)
