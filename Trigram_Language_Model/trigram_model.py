@@ -3,10 +3,15 @@
 # =========================
 from collections import defaultdict, Counter
 import random
-import math
+
+import sys
+import os
+
+# Add the parent directory (Assignment-1) to sys.path
+# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Import BPE functions from tokenizer.py
-from tokenizer import train_bpe_on_dataset, encode, decode
+from BSETokenizer.TokenizerCode import load_tokenized_corpus_for_trigram, load_tokenizer_json, encode, decode
 
 # =========================
 # TRIGRAM LM TRAINING
@@ -60,7 +65,7 @@ def generate_text(prefix_tokens,
                   trigram_counts,
                   total_tokens,
                   vocab,
-                  max_length=100,
+                  max_length=1000,
                   temperature=1.0,
                   top_k=None):
 
@@ -113,10 +118,27 @@ def generate_text(prefix_tokens,
         next_token = random.choices(tokens, weights=probs, k=1)[0]
         generated.append(next_token)
 
-        if next_token == "<EOT>":
+        if next_token == "<EOD>":
             break
 
     return generated
+
+def postprocess_story(tokens):
+    """
+    tokens: list of strings (decoded tokens)
+    Returns a list with special tokens replaced/removed.
+    """
+    processed = []
+    for token in tokens:
+        if token == "<EOS>":
+            processed.append("۔")          # Urdu full stop
+        elif token == "<EOP>":
+            processed.append("\n")         # newline for paragraph break
+        elif token == "<EOD>":
+            continue                        # remove end-of-story token
+        else:
+            processed.append(token)
+    return processed
 
 # =========================
 # MAIN PIPELINE
@@ -126,7 +148,8 @@ if __name__ == "__main__":
     dataset_folder = "urdu_stories_dataset"
 
     # 1 Train BPE on full dataset
-    final_vocab, merge_list, encoded_corpus = train_bpe_on_dataset(dataset_folder, vocab_size=250)
+    final_vocab, merge_list, special_tokens = load_tokenizer_json("BSETokenizer/bpe_tokenizer.json")
+    encoded_corpus = load_tokenized_corpus_for_trigram()
     print("BPE vocab size:", len(final_vocab))
     print("Total merges:", len(merge_list))
 
@@ -149,12 +172,13 @@ if __name__ == "__main__":
         trigram_counts,
         total_tokens,
         final_vocab,
-        max_length=150,
+        max_length=5000,
         temperature=0.8,
         top_k=7
     )
 
     # 5 Decode back to Urdu
     decoded_story = decode(generated_tokens, final_vocab, merge_list)
+    display_story = postprocess_story(decoded_story)
     print("\nGenerated Story:\n")
-    print("".join(decoded_story))
+    print("".join(display_story))
