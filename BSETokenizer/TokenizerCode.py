@@ -1,23 +1,53 @@
 import os
+import json
 
 # =========================
-# BPE TRAINING (UNCHANGED CORE)
+# SPECIAL TOKENS (added to initial vocabulary)
 # =========================
+SPECIAL_TOKENS = ["<EOS>", "<EOP>", "<EOD>"]
 
-def bytePairEncoding(training_sequence, vocab=None, max_vocab_size=250):
-    
-    # Ensure list of symbols (Unicode safe)
-    if isinstance(training_sequence, str):
-        training_sequence = list(training_sequence)
+# =========================
+# TOKENIZATION HELPERS
+# =========================
+def tokenize_text(text, special_tokens=SPECIAL_TOKENS):
+    """
+    Convert a raw string into a list of symbols.
+    Special tokens (e.g., '<EOS>') are kept as single units;
+    all other characters become individual symbols.
+    """
+    tokens = []
+    i = 0
+    while i < len(text):
+        matched = False
+        for special in special_tokens:
+            if text.startswith(special, i):
+                tokens.append(special)
+                i += len(special)
+                matched = True
+                break
+        if not matched:
+            tokens.append(text[i])
+            i += 1
+    return tokens
 
-    # Initialize vocab from characters
+# =========================
+# BPE TRAINING 
+# =========================
+def bytePairEncoding(training_sequence, initial_extra_tokens=None, max_vocab_size=250):
+    """
+    training_sequence : list of symbols (strings, may be multi‑character)
+    initial_extra_tokens : additional tokens to include in the initial vocabulary
+                           (e.g., special tokens not necessarily present in the sequence)
+    """
+    # Initial vocabulary: all symbols in the sequence plus extra tokens
     vocab = set(training_sequence)
+    if initial_extra_tokens:
+        vocab.update(initial_extra_tokens)
 
-    merge_list = []   # stack
+    merge_list = []   # stack of merges (new_token, (left, right))
 
     while len(vocab) < max_vocab_size:
-        
-        # Step 1: Count adjacent pairs
+        # Count adjacent pairs
         pair_counts = {}
         for i in range(len(training_sequence) - 1):
             pair = (training_sequence[i], training_sequence[i + 1])
@@ -26,10 +56,9 @@ def bytePairEncoding(training_sequence, vocab=None, max_vocab_size=250):
         if not pair_counts:
             break
 
-        # Step 2: Most frequent pair
+        # Most frequent pair
         most_frequent_pair = None
         max_count = 0
-
         for pair, count in pair_counts.items():
             if count > max_count:
                 max_count = count
@@ -38,136 +67,116 @@ def bytePairEncoding(training_sequence, vocab=None, max_vocab_size=250):
         if max_count < 2:
             break
 
-        # Step 3: Create new token
+        # Create new token
         new_token = most_frequent_pair[0] + most_frequent_pair[1]
 
-        # Step 4: Replace pair
+        # Replace all occurrences of the pair
         i = 0
         new_sequence = []
-
         while i < len(training_sequence):
             if (i < len(training_sequence) - 1 and
                 training_sequence[i] == most_frequent_pair[0] and
                 training_sequence[i + 1] == most_frequent_pair[1]):
-
                 new_sequence.append(new_token)
                 i += 2
             else:
                 new_sequence.append(training_sequence[i])
                 i += 1
-
         training_sequence = new_sequence
 
-        # Step 5: Add to vocab
+        # Add new token to vocabulary and record merge
         vocab.add(new_token)
-
-        # Step 6: Store merge (stack behavior)
         merge_list.append((new_token, most_frequent_pair))
 
     return training_sequence, vocab, merge_list
 
-
 # =========================
-# ENCODE (UNCHANGED)
+# ENCODE 
 # =========================
-
-def encode(sequence, vocab, merge_list):
-
+def encode(sequence, vocab, merge_list, special_tokens=SPECIAL_TOKENS):
+    """
+    Encode a string or a list of symbols by applying merges from top to bottom.
+    If a string is given, it is first tokenized using the special tokens.
+    """
     if isinstance(sequence, str):
-        sequence = list(sequence)
+        sequence = tokenize_text(sequence, special_tokens)
 
+    # Apply merges in reverse order (most recent first)
     for new_token, pair in reversed(merge_list):
-
         i = 0
         new_sequence = []
-
         while i < len(sequence):
             if (i < len(sequence) - 1 and
                 sequence[i] == pair[0] and
                 sequence[i + 1] == pair[1]):
-
                 new_sequence.append(new_token)
                 i += 2
             else:
                 new_sequence.append(sequence[i])
                 i += 1
-
         sequence = new_sequence
-
     return sequence
 
-
 # =========================
-# DECODE (STACK BOTTOM → TOP)
+# DECODE 
 # =========================
-
 def decode(encoded_sequence, vocab, merge_list):
-
+    """
+    Decode a list of symbols by expanding merges in the order they were learned.
+    """
     if isinstance(encoded_sequence, str):
         encoded_sequence = list(encoded_sequence)
 
     sequence = encoded_sequence[:]
-
     for new_token, pair in merge_list:
-
         new_sequence = []
-
         for symbol in sequence:
             if symbol == new_token:
                 new_sequence.append(pair[0])
                 new_sequence.append(pair[1])
             else:
                 new_sequence.append(symbol)
-
         sequence = new_sequence
-
     return sequence
 
-
 # =========================
-# READ ALL DATASET FILES
+# DATASET LOADING
 # =========================
-
 def load_full_corpus(folder_path):
-
     full_text = ""
-
     for filename in os.listdir(folder_path):
         if filename.endswith(".txt"):
             file_path = os.path.join(folder_path, filename)
             with open(file_path, "r", encoding="utf-8") as f:
                 full_text += f.read() + " "
-
     return full_text
 
-
 # =========================
-# TRAIN ON FULL DATASET
+# TRAIN ON FULL DATASET 
 # =========================
-
 def train_bpe_on_dataset(folder_path, vocab_size=250):
-
     corpus = load_full_corpus(folder_path)
 
-    # Train BPE
+    # Tokenize the corpus into symbols (characters and special tokens)
+    tokenized_corpus = tokenize_text(corpus, SPECIAL_TOKENS)
+
+    # Train BPE, passing the special tokens as initial extra tokens
     encoded_corpus, final_vocab, merge_list = bytePairEncoding(
-        corpus,
+        tokenized_corpus,
+        initial_extra_tokens=SPECIAL_TOKENS,
         max_vocab_size=vocab_size
     )
 
     return final_vocab, merge_list, encoded_corpus
 
 # =========================
-# Saving the Tokenizer
+# SAVE / LOAD TOKENIZER 
 # =========================
-
-import json
-
-def save_tokenizer_json(vocab, merge_list, filepath="BSETokenizer/bpe_tokenizer.json"):
-    # Convert set to list for JSON
+def save_tokenizer_json(vocab, merge_list, special_tokens, filepath="BSETokenizer/bpe_tokenizer.json"):
     data = {
         "vocab": list(vocab),
-        "merge_list": [(token, list(pair)) for token, pair in merge_list]
+        "merge_list": [(token, list(pair)) for token, pair in merge_list],
+        "special_tokens": special_tokens
     }
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -176,38 +185,22 @@ def load_tokenizer_json(filepath="BSETokenizer/bpe_tokenizer.json"):
     with open(filepath, "r", encoding="utf-8") as f:
         data = json.load(f)
     vocab = set(data["vocab"])
-    # Convert pair back to tuple
     merge_list = [(item[0], tuple(item[1])) for item in data["merge_list"]]
-    return vocab, merge_list
+    special_tokens = data.get("special_tokens", [])
+    return vocab, merge_list, special_tokens
 
 # =========================
-# LOAD TOKENIZED CORPUS FOR TRIGRAM MODEL
+# LOAD TOKENIZED CORPUS FOR TRIGRAM MODEL 
 # =========================
-
 def load_tokenized_corpus_for_trigram(filepath="Tokenized_Dataset/Tokenized_Data.txt"):
-    """
-    Reads a tokenized corpus file (one token per line) and returns a list of segments.
-    Segments are delimited by <EOS>, <EOP>, <EOD> tokens.
-    Each segment is a list of tokens, including the boundary token as its last element.
-
-    Parameters:
-        filepath (str): Path to the tokenized corpus file.
-
-    Returns:
-        list of list of str: Segments ready for trigram model training.
-    """
     with open(filepath, 'r', encoding='utf-8') as f:
-        # Read all non-empty lines (tokens)
         tokens = [line.strip() for line in f if line.strip()]
-
     return tokens
 
 # =========================
 # EXAMPLE USAGE
 # =========================
-
 if __name__ == "__main__":
-
     dataset_folder = "urdu_stories_dataset"
 
     # Train on all files
@@ -216,23 +209,23 @@ if __name__ == "__main__":
     print("Final Vocabulary Size:", len(final_vocab))
     print("Total Merges Learned:", len(merge_list))
 
-    # Save tokenizer for later use (optional)
-    save_tokenizer_json(final_vocab, merge_list)
+    # Save tokenizer (including special tokens)
+    os.makedirs("BSETokenizer", exist_ok=True)
+    save_tokenizer_json(final_vocab, merge_list, SPECIAL_TOKENS)
 
-    # ===== NEW: Save the tokenized corpus =====
+    # Save tokenized corpus (one token per line)
     output_dir = "Tokenized_Dataset"
-    os.makedirs(output_dir, exist_ok=True)                 # create folder if missing
-    output_file = os.path.join(output_dir, "Tokenized_Data.txt.txt")
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, "Tokenized_Data.txt")   # fixed double extension
 
-    # Write each token on a new line (preserves token boundaries)
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("\n".join(encoded_corpus))
 
     print(f"Tokenized corpus saved to {output_file}")
 
-    # Example encoding/decoding of a sample sentence
+    # Example encoding/decoding
     sample_sentence = "فقیر نے کہا بھائی <EOS>"
-    encoded_sample = encode(sample_sentence, final_vocab, merge_list)
+    encoded_sample = encode(sample_sentence, final_vocab, merge_list, SPECIAL_TOKENS)
     print("\nEncoded Sample:")
     print(encoded_sample)
 
@@ -240,16 +233,12 @@ if __name__ == "__main__":
     print("\nDecoded Sample:")
     print("".join(decoded_sample))
 
-# USAGE IN OTHER FILES
-
-# new_script.py
+# =========================
+# USAGE IN OTHER SCRIPTS
+# =========================
 # from TokenizerCode import encode, decode, load_tokenizer_json
-
-# vocab, merges = load_tokenizer_json("urdu_bpe.json")
-
+# vocab, merges, specials = load_tokenizer_json("BSETokenizer/bpe_tokenizer.json")
 # text = "فقیر نے کہا بھائی <EOS>"
-# encoded = encode(text, vocab, merges)
-# print("Encoded:", encoded)
-
+# encoded = encode(text, vocab, merges, specials)
 # decoded = decode(encoded, vocab, merges)
-# print("Decoded:", "".join(decoded))
+# print("".join(decoded))
