@@ -2,6 +2,7 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from bs4 import BeautifulSoup
 import re
 import time
 import random
@@ -85,67 +86,65 @@ def collect_story_links(driver, start_page, end_page):
     return all_links
 
 def scrape_story(driver, url):
-    """Scrape a single story"""
+    """Scrape a single story using BeautifulSoup on page source"""
     print(f"   Scraping: {url}")
     driver.get(url)
     time.sleep(random.uniform(3, 5))
-
-    # 1. Get the Title
-    try:
-        title_element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'h1.phead'))
-        )
-        title = title_element.text.strip()
-    except:
-        title = "Untitled Story"
+    
+    # Get page source and parse with BeautifulSoup
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
+    
+    # --- 1. Get the Title ---
+    title_tag = soup.find('h1', class_='phead')
+    title = title_tag.get_text(strip=True) if title_tag else "Untitled Story"
     print(f"   Title: {title}")
-
-    # 2. Locate the main content container that holds the story text
-    content_selectors = [
-        "div.txt_detail",                     # Common class for UrduPoint details
-        "div[style='text-align: right;']",    # Direct style match from HTML
-        "div.article_content",                 # Fallback
-        "div.story-content"                    # Another possible class
-    ]
-
+    
+    # --- 2. Locate the main story container ---
+    # Try multiple possible containers (based on observed structure)
     story_container = None
-    for selector in content_selectors:
-        try:
-            story_container = driver.find_element(By.CSS_SELECTOR, selector)
-            if story_container:
-                print(f"   Found content container with selector: {selector}")
-                break
-        except:
-            continue
-
+    possible_containers = [
+        ('div', {'class': 'txt_detail'}),
+        ('div', {'style': 'text-align: right;'}),
+        ('div', {'class': 'article_content'})
+    ]
+    for tag, attrs in possible_containers:
+        story_container = soup.find(tag, attrs=attrs)
+        if story_container:
+            break
+    
     if not story_container:
-        print("   No story container found!")
+        print("   No story container found")
         return None
-
-    # 3. Extract full text and split into paragraphs
-    full_text = story_container.text
-    # Split by two or more newlines (common paragraph breaks)
-    raw_paragraphs = [p.strip() for p in re.split(r'\n\s*\n', full_text) if p.strip()]
-
-    if not raw_paragraphs:
-        print("   No paragraphs extracted!")
-        return None
-
-    # 4. Discard the first paragraph (assumed to be author name)
-    story_paragraphs = raw_paragraphs[1:]   # Remove first line (author)
-
-    # 5. Process each paragraph with sentence tags
+    
+    # --- 3. Extract paragraphs from the container ---
+    # Convert the container to string and split by <br> tags to get paragraphs
+    container_html = str(story_container)
+    
+    # Replace <br>, <br/>, </p> with a special marker (e.g., "||PARAGRAPH||")
+    # Also handle <div class="clear"> which sometimes separates paragraphs
+    for tag in ['<br>', '<br/>', '</p>', '<div class="clear']:
+        container_html = container_html.replace(tag, '||PARAGRAPH||')
+    
+    # Now parse the modified HTML to get text
+    temp_soup = BeautifulSoup(container_html, 'html.parser')
+    raw_text = temp_soup.get_text()
+    
+    # Split by the marker to get paragraphs
+    raw_paragraphs = [p.strip() for p in raw_text.split('||PARAGRAPH||') if p.strip()]
+    
+    # --- 4. Process each paragraph with sentence tags and add <EOP> ---
     processed_paragraphs = []
-    for i, para in enumerate(story_paragraphs):
-        # Process sentences within the paragraph (add <EOS>)
-        processed_para = process_urdu_text(para) + TAG_EOP
-        processed_paragraphs.append(processed_para)
-
-        # Debug: show first paragraph preview
-        if i == 0:
-            print(f"   [DEBUG] First story paragraph preview: {processed_para[:100]}...")
-
-    # 6. Save to file
+    for i, para in enumerate(raw_paragraphs):
+        if para:
+            # Process sentences (add <EOS>)
+            p_text = process_urdu_text(para) + TAG_EOP
+            processed_paragraphs.append(p_text)
+            
+            # Debug first paragraph
+            if i == 0:
+                print(f"   [DEBUG] 1st Paragraph Preview: {p_text[:100]}...")
+    
+    # --- 5. Save to file ---
     if processed_paragraphs:
         safe_title = "".join(x for x in title[:50] if x.isalnum() or x==' ').strip()
         if not safe_title:
@@ -159,7 +158,7 @@ def scrape_story(driver, url):
         print(f"      Saved: {safe_title}.txt")
         return file_path
     else:
-        print("   No content extracted for this story")
+        print("   No content extracted")
         return None
     
 def scrape_urdu_point(start_page, end_page):
