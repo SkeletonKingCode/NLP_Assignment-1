@@ -88,9 +88,8 @@ def scrape_story(driver, url):
     """Scrape a single story"""
     print(f"   Scraping: {url}")
     driver.get(url)
-    time.sleep(random.uniform(1, 2.5))
-    
-    # --- Text Extraction Logic using Selenium ---
+    time.sleep(random.uniform(3, 5))
+
     # 1. Get the Title
     try:
         title_element = WebDriverWait(driver, 10).until(
@@ -101,60 +100,58 @@ def scrape_story(driver, url):
         title = "Untitled Story"
     print(f"   Title: {title}")
 
-    # 2. Get the Paragraphs (Spans with Urdu text)
-    processed_paragraphs = []
-    
-    # Try different selectors that might contain the Urdu text
-    selectors = [
-        "span[style='font-size:1.25em; line-height:1.8em;']",
-        "span.nastaleeq3",
-        "div[style='text-align: right;'] span",
-        "p.nastaleeq3",
-        "div.urdu-text span"
+    # 2. Locate the main content container that holds the story text
+    content_selectors = [
+        "div.txt_detail",                     # Common class for UrduPoint details
+        "div[style='text-align: right;']",    # Direct style match from HTML
+        "div.article_content",                 # Fallback
+        "div.story-content"                    # Another possible class
     ]
-    
-    spans = []
-    for selector in selectors:
-        spans = driver.find_elements(By.CSS_SELECTOR, selector)
-        if spans:
-            print(f"   Found {len(spans)} elements with selector: {selector}")
-            print(spans)
-            break
-    
-    if not spans:
-        # If no spans found, try to get all text from the main content area
+
+    story_container = None
+    for selector in content_selectors:
         try:
-            content_div = driver.find_element(By.CSS_SELECTOR, "div.article_content, div.story-content, div.main-content")
-            paragraphs = content_div.find_elements(By.TAG_NAME, "p")
-            spans = paragraphs
-            print(f"   Found {len(spans)} paragraphs")
-        except:
-            print("   No content found with any selector")
-            return None
-    
-    for i, span in enumerate(spans):
-        try:
-            raw_text = span.text.strip()
-            if raw_text:
-                # Process sentences and add <EOP>
-                p_text = process_urdu_text(raw_text) + TAG_EOP
-                processed_paragraphs.append(p_text)
-                
-                # Print 1st span of 1st paragraph for debugging as requested
-                if i == 0:
-                    print(f"   [DEBUG] 1st Paragraph Preview: {p_text[:100]}...")
+            story_container = driver.find_element(By.CSS_SELECTOR, selector)
+            if story_container:
+                print(f"   Found content container with selector: {selector}")
+                break
         except:
             continue
 
-    # 3. Save to file
+    if not story_container:
+        print("   No story container found!")
+        return None
+
+    # 3. Extract full text and split into paragraphs
+    full_text = story_container.text
+    # Split by two or more newlines (common paragraph breaks)
+    raw_paragraphs = [p.strip() for p in re.split(r'\n\s*\n', full_text) if p.strip()]
+
+    if not raw_paragraphs:
+        print("   No paragraphs extracted!")
+        return None
+
+    # 4. Discard the first paragraph (assumed to be author name)
+    story_paragraphs = raw_paragraphs[1:]   # Remove first line (author)
+
+    # 5. Process each paragraph with sentence tags
+    processed_paragraphs = []
+    for i, para in enumerate(story_paragraphs):
+        # Process sentences within the paragraph (add <EOS>)
+        processed_para = process_urdu_text(para) + TAG_EOP
+        processed_paragraphs.append(processed_para)
+
+        # Debug: show first paragraph preview
+        if i == 0:
+            print(f"   [DEBUG] First story paragraph preview: {processed_para[:100]}...")
+
+    # 6. Save to file
     if processed_paragraphs:
-        # Clean title for filename
         safe_title = "".join(x for x in title[:50] if x.isalnum() or x==' ').strip()
         if not safe_title:
             safe_title = f"story_{int(time.time())}"
         
         file_path = os.path.join(OUTPUT_DIR, f"{safe_title}.txt")
-        
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(f"TITLE: {title}\n\n")
             f.write("\n".join(processed_paragraphs))
@@ -164,7 +161,7 @@ def scrape_story(driver, url):
     else:
         print("   No content extracted for this story")
         return None
-
+    
 def scrape_urdu_point(start_page, end_page):
     driver = get_driver()
     try:
