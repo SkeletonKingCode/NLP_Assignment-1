@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+/* ============================================
+   SMOOTH SCROLLING
+   ============================================ */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ============================================
+   CUSTOM SCROLLBAR — DARK THEME
+   ============================================ */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0f1e;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a3a6e;
+  border-radius: 3px;
+}
+
+/* ============================================
+   URDU FONT CLASS
+   ============================================ */
+.urdu-text {
+  font-family: 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', serif;
+  direction: rtl;
+  text-align: right;
+  line-height: 2.2;
+}
+
+/* ============================================
+   TYPEWRITER CURSOR
+   ============================================ */
+.typewriter-cursor::after {
+  content: '|';
+  animation: blink 1s infinite;
+  color: #4a6fa5;
+  font-weight: bold;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ============================================
+   GLOW EFFECT FOR ACTIVE ELEMENTS
+   ============================================ */
+.glow-border:focus {
+  box-shadow: 0 0 0 2px #4a6fa5, 0 0 20px rgba(74, 111, 165, 0.3);
+  outline: none;
+}
+
+/* ============================================
+   TYPING INDICATOR DOTS
+   ============================================ */
+.typing-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #4a6fa5;
+  animation: typingBounce 1.4s infinite ease-in-out;
+}
+.typing-dot:nth-child(1) { animation-delay: 0s; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typingBounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ============================================
+   SETTINGS PANEL ANIMATION
+   ============================================ */
+.settings-panel {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
+  opacity: 0;
+}
+.settings-panel.open {
+  max-height: 500px;
+  opacity: 1;
+}
+
+/* ============================================
+   FADE-IN ANIMATION
+   ============================================ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in {
+  animation: fadeIn 0.5s ease forwards;
+}
+
+/* ============================================
+   SLIDER STYLING
+   ============================================ */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #1a2035;
+  outline: none;
+  direction: ltr;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #4a6fa5;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  background: #6b8fc4;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #4a6fa5;
+  cursor: pointer;
+  border: none;
+}
