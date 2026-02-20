@@ -298,7 +298,7 @@ The trained tokenizer is persisted as `BSETokenizer/bpe_tokenizer.json`:
 flowchart TD
     A[Load all .txt files] --> B[Concatenate corpus]
     B --> C[tokenize_text: char + special tokens]
-    C --> D{|vocab| < 250?}
+    C --> D{vocab < 250?}
     D -- Yes --> E[Count all adjacent pairs]
     E --> F[Find most frequent pair]
     F --> G{count >= 2?}
