@@ -816,29 +816,24 @@ curl https://your-api.onrender.com/health
 
 ## Screenshots
 
-### Phase 1 — Scraped Dataset
-![Phase 1 Dataset Screenshot](screenshots/phase1_dataset.png)
 
-### Phase 2 — BPE Tokenizer Training Output
+###  — BPE Tokenizer Training Output
 ![Phase 2 BPE Screenshot](Screenshots/tokenizer.png)
 
-### Phase 3 — Trigram Model Generation (Terminal)
+###  — Trigram Model Generation (Terminal)
 ![Phase 3 Generation Screenshot](Screenshots/trigram%20model.png)
 
-### Phase 4 — FastAPI Swagger Docs
-![Phase 4 API Docs Screenshot](screenshots/phase4_api_docs.png)
 
-### Phase 5 — Frontend Welcome State
-![Phase 5 Frontend Welcome](screenshots/phase5_frontend_welcome.png)
-
-### Phase 5 — Frontend Story Generation
+### - Frontend Welcome State
 ![Phase 5 Story Display](Screenshots/frontend.png)
+
+###  — Frontend Story Generation
+
 ![Frontend 2](Screenshots/f2.png)
 ![Frontend 3](Screenshots/f3.png)
 ![Frontend 4](Screenshots/f4.png)
 
-### Phase 6 — Vercel Deployment
-![Phase 6 Vercel Deployment](screenshots/phase6_vercel.png)
+
 
 ---
 
