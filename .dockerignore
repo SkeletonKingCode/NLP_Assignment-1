@@ -1,0 +1,9 @@
+urdu_stories_dataset/
+Scraping/
+__pycache__/
+*.pyc
+.git/
+node_modules/
+all_story_links.txt
+Prompts/
+Requirements/
